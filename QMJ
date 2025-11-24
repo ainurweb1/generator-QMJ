@@ -1,0 +1,398 @@
+import React, { useState } from 'react';
+import { RefreshCw, Download, Sparkles, BookOpen, CheckCircle, Target, Monitor } from 'lucide-react';
+
+const LandscapeLessonPlan = () => {
+  const [formData, setFormData] = useState({
+    school: '',
+    section: '',
+    teacherName: '',
+    date: new Date().toISOString().slice(0, 10),
+    grade: '',
+    attendees: '',
+    absentees: '',
+    theme: '',
+    learningObjectives: '',
+    lessonObjectives: '',
+    optionalText: '', 
+  });
+
+  const [lessonSteps, setLessonSteps] = useState([]);
+  const [generatedObjectives, setGeneratedObjectives] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isGenerated, setIsGenerated] = useState(false);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const generateWithAI = async () => {
+    if (!formData.theme || !formData.learningObjectives) {
+      alert("Сабақтың тақырыбы мен Оқу мақсаттарын міндетті түрде жазыңыз!");
+      return;
+    }
+    setLoading(true);
+
+    const apiKey = ""; 
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+    const prompt = `
+      Сіз жоғары санатты педагог-әдіскерсіз. Қазақстандық жаңартылған білім беру бағдарламасы бойынша ҚМЖ (Қысқа мерзімді жоспар) жасаңыз.
+
+      Деректер:
+      - Тақырып: ${formData.theme}
+      - Оқу мақсаты (ОМ): ${formData.learningObjectives}
+      - Қосымша контекст: ${formData.optionalText}
+
+      ТАПСЫРМАЛАР (Орындау шарттары):
+      
+      1. **Сабақ мақсаты:** ОМ негізінде SMART мақсат құрастыр.
+
+      2. **Мәтін тазалығы:** Жұлдызша (*), решетка (#) сияқты Markdown белгілерін мүлде қолданба. Сөйлемдер шынайы, әдеби тілмен жазылсын.
+
+      3. **Құрылымы (3 негізгі блок):**
+         
+         A) **Сабақтың басы (10 мин):**
+            - "І кезең. Ұйымдастыру кезеңі" (амандасу, психологиялық ахуал - иконкалармен).
+            - "ІІ кезең. Қызығушылықты ояту" (Ой шақыру әдісі, мақсатты таныстыру).
+         
+         B) **Сабақтың ортасы (30 мин) - Мағынаны тану:**
+            - Жаңа тақырыпты түсіндіру (Ресурспен жұмыс).
+            - **3 нақты тапсырма** (Иконкалармен безендір):
+              1. Жеке жұмыс (3 балл).
+              2. Жұптық жұмыс (3 балл).
+              3. Топтық жұмыс (4 балл).
+            - Тапсырмалардың шарты мен мазмұны "Мұғалім әрекетінде" өте толық жазылсын.
+         
+         C) **Сабақтың соңы (5 мин):**
+            - Кері байланыс. Рефлексия. Үй тапсырмасы.
+
+      4. **Ерекше талаптар:**
+         - **Бағалау бағаны:** ТЕК ҚЫСҚАША дескриптор жаз. (Мысалы: "Сұраққа жауап береді - 1 балл"). Ұзақ сөйлем жазба.
+         - **Оқушы әрекеті:** Оқушының жауабын өте толық жаз. Егер салыстыру немесе талдау болса, жауапты HTML table (<table border="1">...</table>) кодымен бер.
+
+      Жауапты тек төмендегі JSON форматында қайтар:
+      {
+        "generated_objectives": "Сабақ мақсаты...",
+        "steps": [
+          {
+            "stage": "Сабақтың басы...",
+            "teacherAction": "...",
+            "studentAction": "...",
+            "assessment": "...",
+            "resource": "..."
+          }
+        ]
+      }
+    `;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      });
+
+      if (!response.ok) throw new Error("Server Error");
+
+      const data = await response.json();
+      let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!text) throw new Error("Жауап бос келді");
+
+      const startIndex = text.indexOf('{');
+      const endIndex = text.lastIndexOf('}');
+      if (startIndex !== -1 && endIndex !== -1) {
+        text = text.substring(startIndex, endIndex + 1);
+      }
+      
+      text = text.replace(/\*\*/g, '').replace(/\*/g, '');
+      const parsedData = JSON.parse(text);
+      
+      if (!parsedData.steps || !Array.isArray(parsedData.steps)) {
+          throw new Error("Дұрыс емес деректер форматы");
+      }
+
+      setGeneratedObjectives(parsedData.generated_objectives || '');
+      if(!formData.lessonObjectives) {
+          setFormData(prev => ({...prev, lessonObjectives: parsedData.generated_objectives || ''}));
+      }
+
+      setLessonSteps(parsedData.steps);
+      setIsGenerated(true);
+    } catch (err) {
+      console.error(err);
+      alert("Қате: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Word Export (Landscape Logic)
+  const exportToWord = () => {
+    if (!lessonSteps || lessonSteps.length === 0) {
+        alert("Жоспар генерацияланбаған!");
+        return;
+    }
+
+    // Альбомдық (Landscape) форматқа арналған CSS
+    const preHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+    <head><meta charset='utf-8'><title>Landscape Lesson Plan</title>
+    <style>
+      @page {
+        size: landscape;
+        mso-page-orientation: landscape;
+        margin: 1.5cm;
+      }
+      @page Section1 {
+        size: 841.9pt 595.3pt; /* A4 Landscape */
+        mso-page-orientation: landscape;
+        margin: 1.5cm;
+      }
+      div.Section1 { page: Section1; }
+      body { font-family: 'Times New Roman', serif; font-size: 11pt; }
+      table { border-collapse: collapse; width: 100%; margin-bottom: 10px; }
+      td, th { border: 1px solid black; padding: 7px; vertical-align: top; }
+      .center { text-align: center; }
+      .bold { font-weight: bold; }
+      .bg-header { background-color: #eef2ff; }
+      .task-box { border: 1px solid #000; padding: 8px; margin: 5px 0; background-color: #fff; }
+      
+      /* Inner table styles */
+      table table { width: 100%; margin-top: 5px; border: 1px solid #666; }
+      table table td { border: 1px solid #666; font-size: 10pt; }
+    </style>
+    </head><body><div class="Section1">`;
+    
+    let content = `
+        <div class="center bold" style="font-size: 12pt;">${formData.school || ''}</div>
+        <div class="center bold" style="font-size: 14pt; margin-top: 10px;">Қысқа мерзімді (сабақ) жоспар</div>
+        <br>
+        
+        <table>
+            <tr><td class="bold" width="20%">Бөлім:</td><td colspan="2">${formData.section || ''}</td></tr>
+            <tr><td class="bold">Педагогтің аты-жөні:</td><td colspan="2">${formData.teacherName || ''}</td></tr>
+            <tr><td class="bold">Күні:</td><td colspan="2">${formData.date}</td></tr>
+            <tr>
+                <td class="bold">Сынып: ${formData.grade || ''}</td>
+                <td>Қатысушылар: ${formData.attendees || ''}</td>
+                <td>Қатыспағандар: ${formData.absentees || ''}</td>
+            </tr>
+            <tr><td class="bold">Сабақтың тақырыбы:</td><td colspan="2">${formData.theme || ''}</td></tr>
+            <tr><td class="bold">Оқу мақсаттары:</td><td colspan="2">${formData.learningObjectives || ''}</td></tr>
+            <tr><td class="bold">Сабақтың мақсаты:</td><td colspan="2">${formData.lessonObjectives || generatedObjectives || ''}</td></tr>
+            <tr><td class="bold bg-header center" colspan="3">Сабақтың барысы</td></tr>
+        </table>
+
+        <table>
+            <tr class="bg-header bold center">
+                <th width="10%">Кезең/Уақыт</th>
+                <th width="35%">Педагогтің әрекеті</th>
+                <th width="35%">Оқушының әрекеті</th>
+                <th width="12%">Бағалау</th>
+                <th width="8%">Ресурс</th>
+            </tr>
+    `;
+
+    lessonSteps.forEach((step) => {
+       const rawTeacherAction = step.teacherAction || '';
+       const rawStudentAction = step.studentAction || '';
+       const rawAssessment = step.assessment || '';
+       const rawResource = step.resource || '';
+
+       let teacherActionFormatted = rawTeacherAction
+            .replace(/\n/g, '<br>')
+            .replace(/І кезең/g, '<b>І кезең</b>')
+            .replace(/ІІ кезең/g, '<b>ІІ кезең</b>')
+            .replace(/(\d-тапсырма[^<]*)/g, '<div class="task-box"><b>$1</b>') 
+            .replace(/(Дескриптор)/g, '<br><i>$1</i>');
+
+       content += `
+            <tr>
+                <td class="bold center">${step.stage || ''}</td>
+                <td>${teacherActionFormatted}</td>
+                <td style="color:#333;">
+                    ${rawStudentAction.includes('<table') ? rawStudentAction : rawStudentAction.replace(/\n/g, '<br>')}
+                </td>
+                <td style="text-align:center;">${rawAssessment.replace(/\n/g, '<br>')}</td>
+                <td style="text-align:center;">${rawResource}</td>
+            </tr>
+        `;
+    });
+
+    content += "</table></div></body></html>";
+
+    const blob = new Blob(['\ufeff', preHtml + content], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `KMZ_Landscape_${formData.theme.replace(/\s/g, '_')}.doc`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 p-4 font-sans text-gray-800">
+      <div className="max-w-7xl mx-auto bg-white shadow-xl rounded-xl overflow-hidden border border-gray-200">
+        
+        <header className="bg-teal-700 p-6 text-white flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Monitor className="h-8 w-8 text-teal-200" />
+              ҚМЖ: Альбомдық Формат
+            </h1>
+            <p className="text-teal-100 text-sm mt-1">Горизонтальды бағдар • Кең кестелер • Толық мазмұн</p>
+          </div>
+        </header>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 h-full">
+          
+          {/* Сол жақ: Енгізу */}
+          <div className="p-6 bg-gray-50 border-r border-gray-200 space-y-4 overflow-y-auto lg:h-[800px]">
+            <div className="flex items-center gap-2 text-teal-800 font-bold border-b pb-2">
+                <Target size={20} /> Сабақ деректері
+            </div>
+
+            <input name="school" placeholder="Мектеп аты" className="input-teal" onChange={handleInputChange} />
+            <input name="teacherName" placeholder="Мұғалім аты-жөні" className="input-teal" onChange={handleInputChange} />
+            <div className="grid grid-cols-2 gap-2">
+                <input name="section" placeholder="Бөлім" className="input-teal" onChange={handleInputChange} />
+                <input name="grade" placeholder="Сынып" className="input-teal" onChange={handleInputChange} />
+            </div>
+
+            <div className="bg-white p-4 rounded-lg border border-teal-100 shadow-sm space-y-3">
+                <label className="text-xs font-bold text-teal-900 uppercase">Негізгі бөлім</label>
+                <input name="theme" placeholder="Сабақ тақырыбы (Міндетті)" className="input-teal border-teal-300 bg-teal-50" onChange={handleInputChange} />
+                
+                <div className="relative">
+                    <textarea name="learningObjectives" placeholder="Оқу мақсаты (Код)" className="input-teal h-24" onChange={handleInputChange}></textarea>
+                </div>
+
+                {generatedObjectives && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded text-sm">
+                        <span className="font-bold text-green-800 block mb-1">🎯 Мақсат (AI):</span>
+                        {generatedObjectives}
+                    </div>
+                )}
+            </div>
+
+             <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                <label className="text-xs font-bold text-yellow-800 block mb-2">
+                    Қосымша материал (Мәтін/жаттығу):
+                </label>
+                <textarea name="optionalText" placeholder="AI осы мәтіннен кестелі тапсырма құрады..." className="input-teal h-24 text-sm" onChange={handleInputChange}></textarea>
+            </div>
+
+            <button 
+                onClick={generateWithAI}
+                disabled={loading}
+                className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-4 rounded-lg transition-all flex items-center justify-center gap-2 shadow-md disabled:opacity-70"
+            >
+                {loading ? <RefreshCw className="animate-spin" /> : <Sparkles />}
+                {loading ? "Жоспар құрылуда..." : "ҚМЖ Генерациялау"}
+            </button>
+          </div>
+
+          {/* Оң жақ: Нәтиже */}
+          <div className="lg:col-span-2 p-8 bg-white flex flex-col h-full">
+            <div className="flex justify-between items-center mb-6 border-b pb-4">
+                <h2 className="text-xl font-bold text-gray-700">Нәтиже үлгісі (Альбомдық)</h2>
+                {isGenerated && (
+                    <button onClick={exportToWord} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center gap-2 shadow transition">
+                        <Download size={18} /> Word Жүктеу
+                    </button>
+                )}
+            </div>
+
+            <div className="flex-grow overflow-y-auto pr-2 custom-scrollbar max-h-[700px]">
+                {!isGenerated && !loading && (
+                    <div className="flex flex-col items-center justify-center h-64 text-gray-400 border-2 border-dashed rounded-lg">
+                        <Monitor className="h-12 w-12 mb-2 opacity-30" />
+                        <p>Мәліметтерді енгізіп, батырманы басыңыз</p>
+                    </div>
+                )}
+
+                {loading && (
+                     <div className="space-y-4 animate-pulse">
+                        <div className="h-8 bg-gray-200 rounded w-1/3"></div>
+                        <div className="h-32 bg-gray-200 rounded"></div>
+                        <div className="h-32 bg-gray-200 rounded"></div>
+                    </div>
+                )}
+
+                {isGenerated && (
+                    <div className="border border-gray-800 font-serif text-sm w-full overflow-x-auto">
+                         {/* Preveiw контейнері сәл тар болуы мүмкін, бірақ Word-та кең болады */}
+                         <div className="p-4 border-b border-gray-800 bg-gray-50">
+                            <p><strong>Тақырып:</strong> {formData.theme}</p>
+                            <p className="mt-2"><strong>ОМ:</strong> {formData.learningObjectives}</p>
+                            <p className="mt-2"><strong>Сабақ мақсаты:</strong> {formData.lessonObjectives || generatedObjectives}</p>
+                        </div>
+
+                        <div className="grid grid-cols-12 bg-teal-100 font-bold text-center border-b border-gray-800 text-xs md:text-sm">
+                            <div className="col-span-1 p-2 border-r border-gray-800">Кезең</div>
+                            <div className="col-span-4 p-2 border-r border-gray-800">Мұғалім әрекеті</div>
+                            <div className="col-span-4 p-2 border-r border-gray-800">Оқушы әрекеті</div>
+                            <div className="col-span-2 p-2 border-r border-gray-800">Бағалау</div>
+                            <div className="col-span-1 p-2">Ресурс</div>
+                        </div>
+                        
+                        {lessonSteps.map((step, idx) => (
+                            <div key={idx} className="grid grid-cols-12 border-b border-gray-800 last:border-0 text-xs md:text-sm hover:bg-gray-50">
+                                <div className="col-span-1 p-2 border-r border-gray-800 font-bold text-center flex items-center justify-center bg-gray-50">
+                                    {step.stage}
+                                </div>
+                                <div className="col-span-4 p-2 border-r border-gray-800 whitespace-pre-wrap leading-relaxed">
+                                    {step.teacherAction}
+                                </div>
+                                <div className="col-span-4 p-2 border-r border-gray-800 italic text-gray-700 bg-blue-50/10">
+                                     {/* HTML мазмұнын (кестелерді) көрсету */}
+                                     <div dangerouslySetInnerHTML={{ __html: step.studentAction }} />
+                                </div>
+                                <div className="col-span-2 p-2 border-r border-gray-800 text-center font-semibold text-teal-800">
+                                    {step.assessment}
+                                </div>
+                                <div className="col-span-1 p-2 flex items-center justify-center text-center text-xs">
+                                    {step.resource}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {isGenerated && (
+                     <div className="mt-4 p-3 bg-teal-50 text-teal-800 rounded flex items-center gap-2 text-sm border border-teal-200">
+                        <CheckCircle size={16}/>
+                        <span>Word құжаты "Landscape" (Альбом) форматында жүктеледі.</span>
+                    </div>
+                )}
+            </div>
+          </div>
+        </div>
+      </div>
+      <style>{`
+        .input-teal {
+          width: 100%;
+          padding: 10px;
+          border: 1px solid #cbd5e1;
+          border-radius: 8px;
+          outline: none;
+          transition: all 0.2s;
+        }
+        .input-teal:focus {
+          border-color: #0d9488;
+          box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; }
+        
+        /* Table styles for inner HTML content */
+        table { width: 100%; border-collapse: collapse; margin-top: 5px; }
+        td, th { border: 1px solid #ccc; padding: 4px; }
+      `}</style>
+    </div>
+  );
+};
+
+export default LandscapeLessonPlan;
